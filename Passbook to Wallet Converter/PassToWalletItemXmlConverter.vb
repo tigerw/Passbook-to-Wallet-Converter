@@ -2,16 +2,17 @@
 
 Public Module PassToWalletItemXmlConverter
 	Public Function PassToWalletItem(PassStructure As JsonObject) As XElement
-		Dim WalletItem = <WalletItem>
-							 <Version>1</Version>
-							 <Id><%= PassStructure.GetNamedString("serialNumber") %></Id>
-							 <Kind><%= GetPassKind(PassStructure) %></Kind>
-							 <DisplayName><%= PassStructure.GetNamedString("description") %></DisplayName>
-							 <IssuerDisplayName><%= PassStructure.GetNamedString("organizationName") %></IssuerDisplayName>
-							 <HeaderColor><%= GetPassColour(PassStructure, "foregroundColor") %></HeaderColor>
-							 <BodyColor><%= GetPassColour(PassStructure, "backgroundColor") %></BodyColor>
-							 <DisplayMessage><%= PassStructure.GetNamedString("description") %></DisplayMessage>
-						 </WalletItem>
+		Dim WalletItem =
+			<WalletItem>
+				<Version>1</Version>
+				<Id><%= PassStructure.GetNamedString("serialNumber") %></Id>
+				<Kind><%= GetPassKind(PassStructure) %></Kind>
+				<DisplayName><%= PassStructure.GetNamedString("description") %></DisplayName>
+				<IssuerDisplayName><%= PassStructure.GetNamedString("organizationName") %></IssuerDisplayName>
+				<HeaderColor><%= GetPassColour(PassStructure, "foregroundColor") %></HeaderColor>
+				<BodyColor><%= GetPassColour(PassStructure, "backgroundColor") %></BodyColor>
+				<DisplayMessage><%= PassStructure.GetNamedString("description") %></DisplayMessage>
+			</WalletItem>
 
 		If PassStructure.ContainsKey("labelColor") Then
 			Dim Colour = GetPassColour(PassStructure, "labelColor")
