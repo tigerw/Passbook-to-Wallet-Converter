@@ -38,7 +38,8 @@ Public NotInheritable Class MainPage
 	End Sub
 
 	Private Async Function PromptForAndOpenPassbookThen(Functor As Func(Of JsonObject, Task)) As Task
-		For Each PickedFile In Await OpenPicker.PickMultipleFilesAsync()
+		Dim PickedFile = Await OpenPicker.PickSingleFileAsync()
+		If Not PickedFile Is Nothing Then
 			Using PickedFileStream = Await PickedFile.OpenStreamForReadAsync()
 				Using PkPassArchive = New ZipArchive(PickedFileStream)
 					Using ArchiveEntryReader = New StreamReader(PkPassArchive.GetEntry("pass.json").Open())
@@ -46,16 +47,16 @@ Public NotInheritable Class MainPage
 					End Using
 				End Using
 			End Using
-		Next
+		End If
 	End Function
 
 	Private Async Function PromptForAndOpenPassbookThenConvertIntoFile() As Task
 		Await PromptForAndOpenPassbookThen(
 			Async Function(PassStructure As JsonObject) As Task
-				Dim SaveFile = Await SavePicker.PickSaveFileAsync()
-				If Not SaveFile Is Nothing Then
+				Dim SavePickedFile = Await SavePicker.PickSaveFileAsync()
+				If Not SavePickedFile Is Nothing Then
 					Dim WalletItem = PassToWalletItemXmlConverter.PassToWalletItem(PassStructure)
-					Using SavePickedFileStream = Await SaveFile.OpenStreamForWriteAsync()
+					Using SavePickedFileStream = Await SavePickedFile.OpenStreamForWriteAsync()
 						WalletItem.Save(SavePickedFileStream)
 					End Using
 				End If
