@@ -11,7 +11,8 @@
 	<Grid>
 		<StackPanel Orientation="Vertical" HorizontalAlignment="Center" VerticalAlignment="Center">
 		<Button Content="Save to .mswallet (WIP)" Click="ConvertToFile_Clicked" Margin="0,0,0,10" HorizontalAlignment="Center" IsEnabled="False" />
-		<Button Content="Import into Wallet" Click="ImportIntoWallet_Clicked" HorizontalAlignment="Center" />
+		<Button Content="Import into Wallet" Click="ImportIntoWallet_Clicked" Margin="0,0,0,10" HorizontalAlignment="Center" />
+		<Button Content="Clear all imported items" Click="ClearAllImports_Clicked" HorizontalAlignment="Center" />
 		</StackPanel>
 	</Grid>
 </Page>

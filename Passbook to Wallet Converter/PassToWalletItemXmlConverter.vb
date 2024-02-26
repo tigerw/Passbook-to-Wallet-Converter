@@ -63,7 +63,7 @@ Public Module PassToWalletItemXmlConverter
 	''' <returns>A string in the form #rrggbb.</returns>
 	Private Function GetPassColour(PassStructure As JsonObject, Key As String) As String
 		Dim PassColour = PassStructure.GetNamedString(Key, "rgb(255, 255,255)")
-		Dim HexColours = PassColour.Substring(4, PassColour.Length - 5).Split(","c, ", ").Select(
+		Dim HexColours = PassColour.Substring(4, PassColour.Length - 5).Split(","c).Select(
 			Function(ColourComponent As String)
 				Return Integer.Parse(ColourComponent).ToString("X2")
 			End Function

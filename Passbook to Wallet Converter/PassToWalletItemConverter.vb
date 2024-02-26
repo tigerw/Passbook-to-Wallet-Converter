@@ -1,39 +1,21 @@
-﻿Imports Windows.ApplicationModel.Wallet
+﻿Imports System.IO.Compression
+Imports Windows.ApplicationModel.Wallet
 Imports Windows.Data.Json
+
 
 Public Module PassToWalletItemConverter
 	Function GetPassId(PassStructure As JsonObject) As String
 		Return PassStructure.GetNamedString("serialNumber")
 	End Function
 
-	Function PassToWalletItem(PassStructure As JsonObject) As WalletItem
-		Dim WalletItem As New WalletItem(GetPassKind(PassStructure), PassStructure.GetNamedString("description"))
-		UpdateWalletItemFromPass(PassStructure, WalletItem)
+	Function ConvertPassWithResourcesToWalletItem(Pass As JsonObject, PassBundle As ZipArchive) As WalletItem
+		Dim WalletItem As New WalletItem(GetPassKind(Pass), Pass.GetNamedString("description"))
+		UpdateWalletItemFromPass(Pass, PassBundle, WalletItem)
 		Return WalletItem
 	End Function
 
-	Sub UpdateWalletItemFromPass(PassStructure As JsonObject, WalletItem As WalletItem)
-		WalletItem.DisplayMessage = "Provided by the Passbook Converter application"
-		WalletItem.IssuerDisplayName = PassStructure.GetNamedString("organizationName")
-
-		Dim DefaultColour = New Windows.UI.Color()
-		Dim BackgroundColour = If(PassStructure.ContainsKey("backgroundColor"), GetPassColour(PassStructure, "backgroundColor"), DefaultColour)
-		Dim ForegroundColour = If(PassStructure.ContainsKey("foregroundColor"), GetPassColour(PassStructure, "foregroundColor"), DefaultColour)
-		Dim LabelColour = If(PassStructure.ContainsKey("labelColor"), GetPassColour(PassStructure, "labelColor"), ForegroundColour)
-
-		WalletItem.HeaderColor = BackgroundColour
-		WalletItem.BodyColor = BackgroundColour
-
-		WalletItem.BodyFontColor = ForegroundColour
-		WalletItem.HeaderFontColor = LabelColour
-		WalletItem.LogoText = If(PassStructure.ContainsKey("logoText"), PassStructure.GetNamedString("logoText"), String.Empty)
-		WalletItem.ExpirationDate = If(PassStructure.ContainsKey("expirationDate"), DateTimeOffset.Parse(PassStructure.GetNamedString("expirationDate")), CType(Nothing, DateTimeOffset?))
-
-		TryAddPassBarcodeToWalletItem(WalletItem, PassStructure)
-		TryAddPassContentsToWalletItem(WalletItem, PassStructure)
-		TryAddPassRelevantLocationsToWalletItem(WalletItem, PassStructure)
-
-		WalletItem.RelevantDate = If(PassStructure.ContainsKey("relevantDate"), DateTimeOffset.Parse(PassStructure.GetNamedString("relevantDate")), CType(Nothing, DateTimeOffset?))
+	Sub UpdateWalletItemFromPassWithResources(Pass As JsonObject, PassBundle As ZipArchive, WalletItem As WalletItem)
+		UpdateWalletItemFromPass(Pass, PassBundle, WalletItem)
 	End Sub
 
 	Private Function GetPassKind(PassStructure As JsonObject) As WalletItemKind
@@ -77,17 +59,22 @@ Public Module PassToWalletItemConverter
 					Continue For
 				End If
 
-				WalletItem.Barcode = New WalletBarcode(Symbology, Barcode.GetNamedString("message"))
+				WalletItem.Barcode = New WalletBarcode(Symbology.Value, Barcode.GetNamedString("message"))
 				Return
 			Next
 		End If
 
-		If Not PassStructure.ContainsKey("barcode") Then
-			Return
+		If PassStructure.ContainsKey("barcode") Then
+			Dim Barcode = PassStructure.GetNamedObject("barcode")
+			Dim Symbology = GetPassBarcodeSymbology(Barcode)
+
+			If Symbology Is Nothing Then
+				Return
+			End If
+
+			WalletItem.Barcode = New WalletBarcode(Symbology.Value, Barcode.GetNamedString("message"))
 		End If
 
-		Dim Barkode = PassStructure.GetNamedObject("barcode")
-		WalletItem.Barcode = New WalletBarcode(GetPassBarcodeSymbology(Barkode), Barkode.GetNamedString("message"))
 	End Sub
 
 	Private Function GetPassBarcodeSymbology(Barcode As JsonObject) As WalletBarcodeSymbology?
@@ -134,6 +121,21 @@ Public Module PassToWalletItemConverter
 		End If
 	End Sub
 
+	Private Sub TryAddImageResourcesToWalletItem(WalletItem As WalletItem, PassBundle As ZipArchive)
+		Dim SmallIcon = PassBundle.GetEntry("logo.png")
+		Dim MediumIcon = If(PassBundle.GetEntry("logo@2x.png"), SmallIcon)
+		Dim LargeIcon = If(PassBundle.GetEntry("logo@3x.png"), MediumIcon)
+		Dim Background = If(PassBundle.GetEntry("background@2x.png"), PassBundle.GetEntry("background.png"))
+		Dim Footer = If(PassBundle.GetEntry("footer@2x.png"), PassBundle.GetEntry("footer.png"))
+
+		WalletItem.Logo336x336 = PassConverterCommon.ReadZipArchiveEntryIntoRandomAccessStream(LargeIcon)
+		WalletItem.Logo159x159 = PassConverterCommon.ReadZipArchiveEntryIntoRandomAccessStream(MediumIcon)
+		WalletItem.Logo99x99 = PassConverterCommon.ReadZipArchiveEntryIntoRandomAccessStream(SmallIcon)
+		WalletItem.LogoImage = PassConverterCommon.ReadZipArchiveEntryIntoRandomAccessStream(LargeIcon)
+		WalletItem.BodyBackgroundImage = PassConverterCommon.ReadZipArchiveEntryIntoRandomAccessStream(Background)
+		WalletItem.PromotionalImage = PassConverterCommon.ReadZipArchiveEntryIntoRandomAccessStream(Footer)
+	End Sub
+
 	Private Sub TryAddPassDisplayPropertiesToWalletItem(WalletItem As WalletItem, PassStructure As JsonObject)
 		Dim FirstHeaderFieldSummaryViewPosition As WalletSummaryViewPosition
 
@@ -171,10 +173,21 @@ Public Module PassToWalletItemConverter
 			Dim DetailViewPosition = If(Index > MaxDetailViewPosition, WalletDetailViewPosition.Hidden, DetailViewPositions(Index))
 			Dim SummaryViewPosition = If(Index > MaxSummaryViewPosition, WalletSummaryViewPosition.Hidden, SummaryViewPositions(Index))
 			Dim Field = Fields(Index).GetObject()
+			Dim FieldValue = Function()
+								 Dim Value = Field.GetNamedValue("value")
+								 Select Case Value.ValueType
+									 Case JsonValueType.Number
+										 Return CStr(Value.GetNumber())
+									 Case JsonValueType.String
+										 Return ProcessEmbeddedHTML(Value.GetString())
+									 Case Else
+										 Return String.Empty
+								 End Select
+							 End Function()
 
 			WalletItem.DisplayProperties.Add(
 				Field.GetNamedString("key"),
-				New WalletItemCustomProperty(Field.GetNamedString("label", ""), ProcessEmbeddedHTML(Field.GetNamedString("value"))) With
+				New WalletItemCustomProperty(Field.GetNamedString("label", ""), FieldValue) With
 				{
 					.AutoDetectLinks = Not Field.ContainsKey("dataDetectorTypes") OrElse (Field.GetNamedArray("dataDetectorTypes").Count <> 0),
 					.DetailViewPosition = DetailViewPosition,
@@ -244,5 +257,30 @@ Public Module PassToWalletItemConverter
 
 			WalletItem.RelevantLocations.Add(Location.GetHashCode().ToString(), RelevantLocation)
 		Next
+	End Sub
+
+	Private Sub UpdateWalletItemFromPass(Pass As JsonObject, PassBundle As ZipArchive, WalletItem As WalletItem)
+		WalletItem.DisplayMessage = "Provided by the Passbook Converter application."
+		WalletItem.IssuerDisplayName = Pass.GetNamedString("organizationName")
+
+		Dim DefaultColour = New Windows.UI.Color()
+		Dim BackgroundColour = If(Pass.ContainsKey("backgroundColor"), GetPassColour(Pass, "backgroundColor"), DefaultColour)
+		Dim ForegroundColour = If(Pass.ContainsKey("foregroundColor"), GetPassColour(Pass, "foregroundColor"), DefaultColour)
+		Dim LabelColour = If(Pass.ContainsKey("labelColor"), GetPassColour(Pass, "labelColor"), ForegroundColour)
+
+		WalletItem.HeaderColor = BackgroundColour
+		WalletItem.BodyColor = BackgroundColour
+
+		WalletItem.BodyFontColor = ForegroundColour
+		WalletItem.HeaderFontColor = LabelColour
+		WalletItem.LogoText = If(Pass.ContainsKey("logoText"), Pass.GetNamedString("logoText"), String.Empty)
+		WalletItem.ExpirationDate = If(Pass.ContainsKey("expirationDate"), DateTimeOffset.Parse(Pass.GetNamedString("expirationDate")), CType(Nothing, DateTimeOffset?))
+
+		TryAddPassBarcodeToWalletItem(WalletItem, Pass)
+		TryAddPassContentsToWalletItem(WalletItem, Pass)
+		TryAddImageResourcesToWalletItem(WalletItem, PassBundle)
+		TryAddPassRelevantLocationsToWalletItem(WalletItem, Pass)
+
+		WalletItem.RelevantDate = If(Pass.ContainsKey("relevantDate"), DateTimeOffset.Parse(Pass.GetNamedString("relevantDate")), CType(Nothing, DateTimeOffset?))
 	End Sub
 End Module
