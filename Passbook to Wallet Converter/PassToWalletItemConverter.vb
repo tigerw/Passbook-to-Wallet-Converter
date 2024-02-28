@@ -2,7 +2,6 @@
 Imports Windows.ApplicationModel.Wallet
 Imports Windows.Data.Json
 
-
 Public Module PassToWalletItemConverter
 	Function GetPassId(PassStructure As JsonObject) As String
 		Return PassStructure.GetNamedString("serialNumber")
@@ -266,13 +265,12 @@ Public Module PassToWalletItemConverter
 		Dim DefaultColour = New Windows.UI.Color()
 		Dim BackgroundColour = If(Pass.ContainsKey("backgroundColor"), GetPassColour(Pass, "backgroundColor"), DefaultColour)
 		Dim ForegroundColour = If(Pass.ContainsKey("foregroundColor"), GetPassColour(Pass, "foregroundColor"), DefaultColour)
-		Dim LabelColour = If(Pass.ContainsKey("labelColor"), GetPassColour(Pass, "labelColor"), ForegroundColour)
 
 		WalletItem.HeaderColor = BackgroundColour
 		WalletItem.BodyColor = BackgroundColour
 
 		WalletItem.BodyFontColor = ForegroundColour
-		WalletItem.HeaderFontColor = LabelColour
+		WalletItem.HeaderFontColor = ForegroundColour
 		WalletItem.LogoText = If(Pass.ContainsKey("logoText"), Pass.GetNamedString("logoText"), String.Empty)
 		WalletItem.ExpirationDate = If(Pass.ContainsKey("expirationDate"), DateTimeOffset.Parse(Pass.GetNamedString("expirationDate")), CType(Nothing, DateTimeOffset?))
 
