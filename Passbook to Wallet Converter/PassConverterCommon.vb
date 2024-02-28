@@ -26,7 +26,7 @@ Module PassConverterCommon
 		End Using
 	End Function
 
-	Async Function ReadZipArchiveEntryIntoString(ZipArchiveEntry As ZipArchiveEntry) As Task(Of String)
+	Private Async Function ReadZipArchiveEntryIntoString(ZipArchiveEntry As ZipArchiveEntry) As Task(Of String)
 		Using ArchiveEntryReader = New StreamReader(ZipArchiveEntry.Open())
 			Return Await ArchiveEntryReader.ReadToEndAsync()
 		End Using

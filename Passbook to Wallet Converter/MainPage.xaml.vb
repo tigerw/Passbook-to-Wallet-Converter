@@ -16,7 +16,7 @@ Public NotInheritable Class MainPage
 		OpenPicker.FileTypeFilter.Add(".pkpass")
 
 		SavePicker = New Pickers.FileSavePicker()
-		SavePicker.FileTypeChoices.Add("Microsoft Wallet", {".xml"})
+		SavePicker.FileTypeChoices.Add("Microsoft Wallet", {".mswallet"})
 		SavePicker.SuggestedStartLocation = Pickers.PickerLocationId.DocumentsLibrary
 	End Sub
 
@@ -57,10 +57,9 @@ Public NotInheritable Class MainPage
 			Async Function(PassBundle As ZipArchive) As Task
 				Dim SavePickedFile = Await SavePicker.PickSaveFileAsync()
 				If Not SavePickedFile Is Nothing Then
-					'Dim WalletItem = PassToWalletItemXmlConverter.PassToWalletItem(PassBundle)
-					'Using SavePickedFileStream = Await SavePickedFile.OpenStreamForWriteAsync()
-					'	WalletItem.Save(SavePickedFileStream)
-					'End Using
+					Using Stream = Await SavePickedFile.OpenAsync(FileAccessMode.ReadWrite)
+						Await PassToWalletItemXmlConverter.ConvertPassBundleToWalletPackage(PassBundle, Stream.AsStreamForWrite())
+					End Using
 				End If
 			End Function
 		)

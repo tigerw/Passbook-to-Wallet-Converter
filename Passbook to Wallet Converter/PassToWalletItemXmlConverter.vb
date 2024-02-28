@@ -1,39 +1,54 @@
-﻿Imports Windows.Data.Json
+﻿Imports System.IO.Compression
+Imports Windows.Data.Json
 
 Public Module PassToWalletItemXmlConverter
-	Public Function PassToWalletItem(PassStructure As JsonObject) As XElement
+	Async Function ConvertPassBundleToWalletPackage(PassBundle As ZipArchive, OutputStream As Stream) As Task
+		Using WalletPackage = New ZipArchive(OutputStream, ZipArchiveMode.Create, True)
+			Dim WalletItem = PassToWalletItem(Await PassConverterCommon.GetPassFromPassBundle(PassBundle))
+			Dim WalletItemEntry = WalletPackage.CreateEntry("WalletItem.xml")
+			Using WalletItemWriter = WalletItemEntry.Open()
+				WalletItem.Save(WalletItemWriter)
+			End Using
+		End Using
+	End Function
+
+	Private Function PassToWalletItem(Pass As JsonObject) As XElement
 		Dim WalletItem =
 			<WalletItem>
-				<Version>1</Version>
-				<Id><%= PassStructure.GetNamedString("serialNumber") %></Id>
-				<Kind><%= GetPassKind(PassStructure) %></Kind>
-				<DisplayName><%= PassStructure.GetNamedString("description") %></DisplayName>
-				<IssuerDisplayName><%= PassStructure.GetNamedString("organizationName") %></IssuerDisplayName>
-				<HeaderColor><%= GetPassColour(PassStructure, "foregroundColor") %></HeaderColor>
-				<BodyColor><%= GetPassColour(PassStructure, "backgroundColor") %></BodyColor>
-				<DisplayMessage><%= PassStructure.GetNamedString("description") %></DisplayMessage>
+				<Id><%= Pass.GetNamedString("serialNumber") %></Id>
+				<Kind><%= GetPassKind(Pass) %></Kind>
+				<DisplayName><%= Pass.GetNamedString("description") %></DisplayName>
+				<IssuerDisplayName><%= Pass.GetNamedString("organizationName") %></IssuerDisplayName>
+				<DisplayMessage>Provided by the Passbook Converter application.</DisplayMessage>
 			</WalletItem>
 
-		If PassStructure.ContainsKey("labelColor") Then
-			Dim Colour = GetPassColour(PassStructure, "labelColor")
-			WalletItem.Add(<HeaderFontColor><%= Colour %></HeaderFontColor>)
-			WalletItem.Add(<BodyFontColor><%= Colour %></BodyFontColor>)
+		Dim BackgroundColour = GetPassColour(Pass, "backgroundColor")
+		Dim ForegroundColour = GetPassColour(Pass, "foregroundColor")
+
+		If BackgroundColour IsNot Nothing Then
+			WalletItem.Add(<HeaderColor><%= BackgroundColour %></HeaderColor>)
+			WalletItem.Add(<BodyColor><%= BackgroundColour %></BodyColor>)
 		End If
 
-		If PassStructure.ContainsKey("logoText") Then
-			WalletItem.Add(<LogoText><%= PassStructure.GetNamedString("logoText") %></LogoText>)
+		If ForegroundColour IsNot Nothing Then
+			WalletItem.Add(<HeaderFontColor><%= ForegroundColour %></HeaderFontColor>)
+			WalletItem.Add(<BodyFontColor><%= ForegroundColour %></BodyFontColor>)
 		End If
 
-		If PassStructure.ContainsKey("expirationDate") Then
-			WalletItem.Add(<ExpirationDate><%= PassStructure.GetNamedString("expirationDate") %></ExpirationDate>)
+		If Pass.ContainsKey("logoText") Then
+			WalletItem.Add(<LogoText><%= Pass.GetNamedString("logoText") %></LogoText>)
 		End If
 
-		TryAddPassBarcodeToWalletItem(WalletItem, PassStructure)
-		TryAddPassContentsToWalletItem(WalletItem, PassStructure)
-		TryAddPassRelevantLocationsToWalletItem(WalletItem, PassStructure)
+		If Pass.ContainsKey("expirationDate") Then
+			WalletItem.Add(<ExpirationDate><%= Pass.GetNamedString("expirationDate") %></ExpirationDate>)
+		End If
 
-		If PassStructure.ContainsKey("relevantDate") Then
-			WalletItem.Add(<RelevantDate><Date><%= PassStructure.GetNamedString("relevantDate") %></Date></RelevantDate>)
+		TryAddPassBarcodeToWalletItem(WalletItem, Pass)
+		TryAddPassContentsToWalletItem(WalletItem, Pass)
+		TryAddPassRelevantLocationsToWalletItem(WalletItem, Pass)
+
+		If Pass.ContainsKey("relevantDate") Then
+			WalletItem.Add(<RelevantDate><Date><%= Pass.GetNamedString("relevantDate") %></Date></RelevantDate>)
 		End If
 
 		Return WalletItem
@@ -62,6 +77,10 @@ Public Module PassToWalletItemXmlConverter
 	''' <summary>Retrieves a named string from the <paramref name="PassStructure"/>, defaulting to white if the key doesn't exist.</summary>
 	''' <returns>A string in the form #rrggbb.</returns>
 	Private Function GetPassColour(PassStructure As JsonObject, Key As String) As String
+		If Not PassStructure.ContainsKey(Key) Then
+			Return Nothing
+		End If
+
 		Dim PassColour = PassStructure.GetNamedString(Key, "rgb(255, 255,255)")
 		Dim HexColours = PassColour.Substring(4, PassColour.Length - 5).Split(","c).Select(
 			Function(ColourComponent As String)
@@ -93,16 +112,16 @@ Public Module PassToWalletItemXmlConverter
 		End If
 
 		If Not PassStructure.ContainsKey("barcode") Then
-			Return
-		End If
+			Dim Barcode = PassStructure.GetNamedObject("barcode")
+			Dim Symbology = GetPassBarcodeSymbology(Barcode)
 
-		Dim Barkode = PassStructure.GetNamedObject("barcode")
-		WalletItem.Add(
-			<Barcode>
-				<Symbology><%= GetPassBarcodeSymbology(Barkode) %></Symbology>
-				<Value><%= Barkode.GetNamedString("message") %></Value>
-			</Barcode>
-		)
+			WalletItem.Add(
+				<Barcode>
+					<Symbology><%= Symbology %></Symbology>
+					<Value><%= Barcode.GetNamedString("message") %></Value>
+				</Barcode>
+			)
+		End If
 	End Sub
 
 	Private Function GetPassBarcodeSymbology(Barcode As JsonObject) As String
@@ -150,8 +169,8 @@ Public Module PassToWalletItemXmlConverter
 	Private Sub TryAddPassDisplayPropertiesToWalletItem(WalletItem As XElement, PassStructure As JsonObject)
 		Dim DisplayPropertiesElement = <DisplayProperties/>
 
-		REM TryAddPassDisplayProperties(DisplayPropertiesElement, <Center/>, PassStructure, "auxiliaryFields")
-		TryAddPassDisplayPropertiesToElement(DisplayPropertiesElement, <Footer/>, PassStructure, "backFields")
+		TryAddPassDisplayPropertiesToElement(DisplayPropertiesElement, Nothing, PassStructure, "backFields")
+		TryAddPassDisplayPropertiesToElement(DisplayPropertiesElement, <Footer/>, PassStructure, "auxiliaryFields")
 		TryAddPassDisplayPropertiesToElement(DisplayPropertiesElement, <Header/>, PassStructure, "headerFields")
 		TryAddPassDisplayPropertiesToElement(DisplayPropertiesElement, <Primary/>, PassStructure, "primaryFields")
 		TryAddPassDisplayPropertiesToElement(DisplayPropertiesElement, <Secondary/>, PassStructure, "secondaryFields")
@@ -164,9 +183,21 @@ Public Module PassToWalletItemXmlConverter
 			Return
 		End If
 
+		Dim DisplayProperties = PassStructure.GetNamedArray(Key)
+
+		If LocationElement Is Nothing Then
+			TryAddPassDisplayPropertiesToElement(DisplayPropertiesElement, DisplayProperties)
+		Else
+			If TryAddPassDisplayPropertiesToElement(LocationElement, DisplayProperties) Then
+				DisplayPropertiesElement.Add(LocationElement)
+			End If
+		End If
+	End Sub
+
+	Private Function TryAddPassDisplayPropertiesToElement(Element As XElement, DisplayProperties As JsonArray) As Boolean
 		Dim Added = False
 
-		For Each FieldEntry In PassStructure.GetNamedArray(Key)
+		For Each FieldEntry In DisplayProperties
 			Dim Field = FieldEntry.GetObject()
 			Dim PropertyElement =
 				<Property>
@@ -183,11 +214,7 @@ Public Module PassToWalletItemXmlConverter
 			End If
 
 			If Field.ContainsKey("dateStyle") Then
-				Dim AbortProperty = False
-				Dim Format = GetPassDisplayPropertyDateTimeFormat(Field, AbortProperty)
-				If AbortProperty Then
-					Continue For
-				End If
+				Dim Format = GetPassDisplayPropertyDateTimeFormat(Field)
 				If Format IsNot Nothing Then
 					PropertyElement.Add(<DateTimeFormat><%= Format %></DateTimeFormat>)
 				End If
@@ -198,23 +225,22 @@ Public Module PassToWalletItemXmlConverter
 			End If
 
 			Added = True
-			LocationElement.Add(PropertyElement)
+			Element.Add(PropertyElement)
 		Next
 
-		If Added Then
-			DisplayPropertiesElement.Add(LocationElement)
-		End If
-	End Sub
+		Return Added
+	End Function
 
-	Private Function GetPassDisplayPropertyDateTimeFormat(PassStructure As JsonObject, ByRef AbortProperty As Boolean) As String
+	Private Function GetPassDisplayPropertyDateTimeFormat(PassStructure As JsonObject) As String
 		Dim DateStyle = PassStructure.GetNamedString("dateStyle")
 		Dim TimeStyle = PassStructure.GetNamedString("timeStyle")
 
 		Select Case DateStyle
 			Case "PKDateStyleNone"
+
 				Select Case TimeStyle
 					Case "PKDateStyleNone"
-						AbortProperty = True
+						Return Nothing
 					Case "PKDateStyleShort"
 					Case "PKDateStyleMedium"
 						Return "ShortTime"
@@ -222,24 +248,35 @@ Public Module PassToWalletItemXmlConverter
 					Case "PKDateStyleFull"
 						Return "LongTime"
 				End Select
+
 			Case "PKDateStyleShort"
 			Case "PKDateStyleMedium"
+
 				Select Case TimeStyle
 					Case "PKDateStyleNone"
 						Return "ShortDate"
 					Case "PKDateStyleShort"
 					Case "PKDateStyleMedium"
 						Return "ShortDateTime"
-				End Select
-			Case "PKDateStyleLong"
-			Case "PKDateStyleFull"
-				Select Case TimeStyle
-					Case "PKDateStyleNone"
-						Return "LongDate"
 					Case "PKDateStyleLong"
 					Case "PKDateStyleFull"
 						Return "FullDateTime"
 				End Select
+
+			Case "PKDateStyleLong"
+			Case "PKDateStyleFull"
+
+				Select Case TimeStyle
+					Case "PKDateStyleNone"
+						Return "LongDate"
+					Case "PKDateStyleShort"
+					Case "PKDateStyleMedium"
+						Return "FullDateTime"
+					Case "PKDateStyleLong"
+					Case "PKDateStyleFull"
+						Return "FullDateTime"
+				End Select
+
 		End Select
 
 		Return Nothing
